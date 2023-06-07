@@ -50,7 +50,7 @@ The options are as follows:
     -m, --mode [string]  
     		Enter the blackbody mode, either 'serial' or 'ethernet'
 			        
-**EXAMPLES**\
+**EXAMPLES**
 ```
 python BB_controller.py -g
 ```
