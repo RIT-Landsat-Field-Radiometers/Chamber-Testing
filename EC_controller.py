@@ -11,7 +11,9 @@
 NUM_PROG = 3
 from pymodbus.client import ModbusTcpClient
 from pymodbus.payload import BinaryPayloadDecoder
+from pymodbus.payload import BinaryPayloadBuilder
 from pymodbus.constants import Endian
+import numpy as np
 import pymodbus
 import sys
 
@@ -32,12 +34,37 @@ if(rw == "-w"):
 	val = int(args[2]) #value to write
 	print("Writing " + str(val) + " to register " + str(reg))
 	client.write_registers(reg, val)
+elif (rw == "-wf"):
+	reg = int(args[1]) #reg to write to
+	val = np.float32(args[2]) #float value to write
+	print("Writing " + str(val) + " to register " + str(reg))
+	builder = BinaryPayloadBuilder(wordorder=Endian.Little,
+            byteorder=Endian.Big)
+	builder.add_32bit_float(val)
+	val_float= builder.build()
+	client.write_registers(reg, val_float, skip_encode = True)
 elif (rw == "-r"): #read register
 	reg = int(args[1]) #reg to read
 	val = int(args[2]) #Num of values to read
 	read = client.read_holding_registers(address = reg ,count = val)
 	print("Register " + str(reg) + ": " + str(read.registers))
+elif (rw == "-rf"): #read float
+	reg = int(args[1]) #reg to read
+	read = client.read_holding_registers(address = reg ,count = 4)
+	decoder = BinaryPayloadDecoder.fromRegisters(read.registers, Endian.Big, wordorder=Endian.Little)
+	print("Register " + str(reg) + ": {:.1f}".format(decoder.decode_32bit_float()))
 
+elif (rw == "-st"):
+	val = np.float32(args[1]) #float value to write
+	if(val >= -45 and val <= 180):
+		print("Setting temperature set point to " + str(val) + " C.")
+		builder = BinaryPayloadBuilder(wordorder=Endian.Little,
+				byteorder=Endian.Big)
+		builder.add_32bit_float(val)
+		val_float= builder.build()
+		client.write_registers(2782, val_float, skip_encode = True)
+	else:
+		print("Set point must be between -45C and 180C.")
 elif (rw == "-pf"): #run program number
 	read = client.read_holding_registers(address = 48000 ,count = 1)
 	val = int(args[1]) # Program number to begin
@@ -56,6 +83,12 @@ elif (rw == "-up"): #unpause profile
 elif (rw == "-t"): #terminate profile
 	print("Terminating profile")
 	client.write_registers(16566, 148)
+
+	#set chamber temp to 23
+	builder = BinaryPayloadBuilder(wordorder=Endian.Little, byteorder=Endian.Big)
+	builder.add_32bit_float(23)
+	val_float= builder.build()
+	client.write_registers(2782, val_float, skip_encode = True)
 elif (rw == "-s"):
 	print("Chamber Status")
 	print("----------------------")
@@ -82,14 +115,18 @@ elif (rw == "-s"):
 		print("Profile running: None")
 	
 elif (rw == "-h"): #print list of commands
+	print("-h		: Print list of all commands")
 	print("-w (reg) (val)		: Write (val) to register (reg)")
+	print("-wf (reg) (val)		: Write a IEEE float (val) to register (reg)")
 	print("-r (reg) (count)		: Read (count) values from register (reg)" )
+	print("-rf (reg)				: Read a IEEE float from register (reg)" )
+	print("-st (temp)		: Sets chamber temperature set point to (temp)")
 	print("-pf (pf_num)		: Begin pf (pf_num)")
 	print("-s		: Chamber status")
-	print("-p		: Pause program")
-	print("-up		: Resume program")
-	print("-t		: Terminate program")
-	print("-h		: Print list of all commands")
+	print("-p		: Pause profile")
+	print("-up		: Resume profile")
+	print("-t		: Terminate profile")
+	
 else:
 	print("ERROR: Invalid command, use command h to see all available commands")
 
