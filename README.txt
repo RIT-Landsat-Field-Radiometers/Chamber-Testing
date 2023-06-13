@@ -135,4 +135,11 @@ SYNOPSIS
 
 	
 DESCRIPTION
-	The GUI will provide the user with the chamber's current temperature and set point, the current humidity, and the ability to start a new profile by selecting its number from the drop-down menu. Once a profile is started, it can be paused or terminated. A custom program can also be created by choosing "Custom Program", entering a starting temperature, ending temp, rate, and time (in minutes) at each step.
+	The GUI will provide the user with the chamber's current temperature and set point, the current humidity, and the ability to start a new profile by selecting its number from the drop-down menu. Once a profile is started, it can be paused or terminated. A custom program can also be created by choosing "Custom Program", entering a starting temperature, ending temp, rate, and time (in minutes) at each step. Custom temperatures can be added by reading in a text file. The first line should be the desired temperature steps separated by a space and the second line of the text file should be the number of minutes to wait in between each step.
+
+
+	0 25 40 57.5
+	110
+
+
+This will set the chamber to 0 C, to 25 C, and then to 40 C, waiting at each temperature for 110 minutes until staying at 57.5 C until a new set point is loaded.
