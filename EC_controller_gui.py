@@ -87,7 +87,7 @@ class CustomStep:
 					error_msg += "\n"
 			error_msg +="\nNumber of Steps: " + str(self.temps.size)
 			error_msg +="\nTime Between Each Step: " + str(self.time) + " minute(s)"
-			error_msg +="\nTotal Program Length: " + str(self.time * (self.temps.size - 1))
+			error_msg +="\nTotal Program Length: " + str(self.time * (self.temps.size)) + " minute(s)"
 			lbl_entry_error.configure(text = error_msg)
 		lbl_entry_error.configure(text = error_msg)
 		lbl_entry_error.grid()
@@ -129,6 +129,9 @@ class CustomStep:
 		
 		
 	def next_step(self):
+		if(self.step == (len(self.temps))):
+			self.running = False
+			return True
 		#go to next temperature. If final step, return true
 		set_temp(self.temps[self.step])
 		self.step += 1
@@ -138,9 +141,7 @@ class CustomStep:
 		self.current_time = read.registers[0]
 		
 		
-		if(self.step == len(self.temps)):
-			self.running = False
-			return True
+		
 		return False
 
 custom = CustomStep()
@@ -242,7 +243,7 @@ def confirm_button():
 	paused = False
 	#begin program, calculate remaining time of first step and total program
 	remaining_time = custom.time * 60
-	remaining_time_total = remaining_time * (custom.temps.size - 1)
+	remaining_time_total = remaining_time * (custom.temps.size)
 	
 	btn_custom.configure(text = "Pause Custom Program", command = pause_custom_button)
 	
@@ -272,6 +273,16 @@ def pause_custom_button():
 		#calculate new remaining time
 		read = client.read_holding_registers(address = 14660 ,count = 1)
 		current_time = int(read.registers[0])
+		
+		if(current_time < custom.current_time):
+			#prevents overflow
+			elapsed_time = (86400 - custom.current_time) + current_time
+		else:
+			elapsed_time = current_time - custom.current_time
+		
+		
+		
+		
 		remaining_time -= (current_time - custom.current_time)
 		remaining_time_total -= (current_time - custom.current_time)
 
@@ -396,7 +407,13 @@ def update_time():
 	current_time = int(read.registers[0])
 	if(custom.running and not paused):
 		#print remaining time of step and step number to entry label
-		elapsed_time = current_time - custom.current_time
+		if(current_time < custom.current_time):
+			#prevents overflow
+			elapsed_time = (86400 - custom.current_time) + current_time
+		else:
+			elapsed_time = current_time - custom.current_time
+		
+		
 		remaining_time_total_min = int((remaining_time_total - elapsed_time) / 60)
 		remaining_time_total_sec = (remaining_time_total - elapsed_time) % 60
 		time_str = "Remaining Time For Program: " + str(remaining_time_total_min)
@@ -418,13 +435,18 @@ def update_time():
 		if(elapsed_time > remaining_time):
 			#decrement time by an interval
 			remaining_time_total -= custom.time * 60
+			#next_step returns true if final step was completed
 			if(custom.next_step()):
 					btn_custom.configure(text = "Create Custom Program", command = custom_button)
 					lbl_entry_error.configure(text = "Program Finished!")
 					for ent in ents_custom:
 						ent.configure(state = "normal")
 					btn_start_pause.grid()
+					btn_read_file.grid()
 					btn_edit_custom.grid_remove()
+					
+					ent_file.grid()
+					set_temp(23)
 	
 	
 #GUI objects
