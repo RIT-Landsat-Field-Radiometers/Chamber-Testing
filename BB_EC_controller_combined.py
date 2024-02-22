@@ -20,7 +20,7 @@ import serial
 import numpy as np
 import time
 
-
+import csv #csv stuff at line 727
 
 MAX_TEMP = 180
 MIN_TEMP = -45
@@ -32,11 +32,11 @@ disconnected = False
 remaining_time = 0 #variable for monitoring how much time is left in step
 remaining_time_total = 0
 
-global startTemp #start temp for BB
-global endTemp #end temp for BB
-global step #temperature step for BB
-global delay #time hold for BB
-global outfile #name of output file
+global startTemp
+global endTemp
+global step
+global delay
+global outfile
 global bb_temps
 global bb_index
 global bb_error_msg
@@ -44,6 +44,7 @@ global bb_start_time
 global bb_actual_temp
 global bb_finished
 global bb_running
+
 
 bb_running = False
 bb_finished = False
@@ -130,10 +131,20 @@ def BB_compute():
 	bb_error_msg = ""
 	if(BB_validate_inputs()):
 		bb_temps = np.arange(startTemp, endTemp, step)  # temps in [C]
+		bb_temps = np.flip(bb_temps)
+		#UNCOMMENT FOR CUSTOM FILE SETUP
+		#with open("Custom_BB_Temps/CH10-35_Test.txt") as f:
+			#read = f.readlines()
+			#[0] = read[0].rstrip(read[0][-1])
+			#bb_temps = read[0].split() #read first line for list of temps
+			#convert string to float, then convert list to numpy array
+			#bb_temps = np.array(list(map(np.float32, bb_temps)))
+		#UNCOMMENT FOR CUSTOM FILE SETUP
+		
 		bb_temps = np.append(25, bb_temps)  # make sure the script leaves the BB at 25C
+		bb_temps = np.append(bb_temps, 25)  # make sure the script leaves the BB at 25C
 		BB_lbl_entry_error.configure(text = f"Temperatures:\n{bb_temps}\nSweep will be done in reverse order, ending on 25C\nHold Time: {delay} minutes\nOutput File Name: {outfile}")
 		BB_btn_startSerial.grid()
-		BB_btn_startEthernet.grid()
 	else:
 		BB_lbl_entry_error.configure(text = bb_error_msg)
     
@@ -158,7 +169,6 @@ def BB_serial():
 		bb_finished = False #set flag false to confirm cooldown period is over
 		BB_btn_compute.grid()
 		BB_btn_startSerial.grid_remove()
-		BB_btn_startEthernet.grid_remove()
 		bb_running = False
 		return #finish running serial control of blackbody
 		
@@ -170,7 +180,6 @@ def BB_serial():
 		bb_running = True
 		BB_btn_compute.grid_remove() #hide buttons to prevent accidentally starting
 		BB_btn_startSerial.grid_remove() #hide buttons to prevent accidentally starting
-		BB_btn_startEthernet.grid_remove() #hide buttons to prevent accidentally starting
 		BB_btn_stop.grid()
 		print(bb_start_time)
 		bb_actual_temp = [] #initialize array for actual BB temps
@@ -179,12 +188,19 @@ def BB_serial():
 		command = ("\n").encode('ascii')
 		print(ser.read_until(command))  # needs to say connected to acc controler
 
-		print("Temp:" + format(bb_temps[-bb_index], '.1f') + "C")  # keep track of what temp its on
+		#for t in range(1, temps.shape[0] + 1):
+		# print(t)
+		# print(temps[-t])
+		print("Temp:" + format(bb_temps[bb_index - 1], '.1f') + "C")  # keep track of what temp its on
 
 		# DAxx.x sets the absolute temperature
 		# ex: DA25.0 sets the abs. temp. to 25 C
-		command = ("DA" + format(bb_temps[-bb_index], '.1f') + "\n").encode('ascii')  # set temp
+		command = ("DA" + format(bb_temps[bb_index - 1], '.1f') + "\n").encode('ascii')  # set temp
 		ser.write(command)
+		BB_lbl_dispStartSerial.configure(text = "BB setpoint: " + format(bb_temps[bb_index - 1], '.1f') + "C")
+
+		# hold this temperature for the given amount of minutes
+		#time.sleep(delay*60)  # delay for how ever long you want [s]
 
 		# M2 gets the absolute temperature from the BB
 		command = ("M2\n").encode('ascii')  # get temp
@@ -211,10 +227,10 @@ def BB_serial():
 			bb_finished = True
 			BB_lbl_dispStartSerial.configure(text = "Blackbody in Cooldown Period")
 			bb_index = 1
-			app.after(delay * 1000 * 60, BB_serial) #wait another cycle, then turn off BB control
+			app.after(delay * 1000 * 60, BB_serial) #wait 10 seconds, then turn off BB control
 		else:
-			bb_index += 1 #go to next temperature
-			app.after(delay * 1000 * 60, BB_serial) #run this function after the hold period is over
+			bb_index += 1
+			app.after(delay * 1000 * 60, BB_serial)
 			ser.close()
 
 def BB_ethernet():
@@ -295,11 +311,8 @@ def BB_stop():
 		
 	bb_finished = True
 	BB_lbl_dispStartSerial.configure(text = "Blackbody sweep stopped")
-
-	#display compute button and hide start and stop buttons
 	BB_btn_compute.grid()
 	BB_btn_startSerial.grid_remove()
-	BB_btn_startEthernet.grid_remove()
 	BB_btn_stop.grid_remove()
 	ser.close()
 	
@@ -328,54 +341,55 @@ class ECCustomStep:
 
 	#ensures the step is valid
 	def validate_EC_inputs(self):
-		valid = True
+		fail = False
 		error_msg = ""
 		if(self.begin < MIN_TEMP or self.begin > MAX_TEMP):
-			valid = False
+			fail = True
 			error_msg += "Beginning value must be between " + str(MIN_TEMP) + " and " +  str(MAX_TEMP) + ".\n"
 		if(self.end < MIN_TEMP or self.end > MAX_TEMP):
-			valid = False
+			fail = True
 			error_msg += "Ending value must be between " + str(MIN_TEMP) + " and " +  str(MAX_TEMP) + ".\n"
 		if(self.rate == 0):
-			valid = False
+			fail = True
 			error_msg += "Rate cannot be equal to 0.\n"
 		if(abs(self.begin - self.end) < abs(self.rate)):
-			valid = False
+			fail = True
 			error_msg += "Rate cannot be greater than the difference between cstart and end.\n"
 		if(self.end < self.begin and self.rate > 0):
-			valid = False
+			fail = True
 			error_msg += "Rate must be negative if beginning is less than end.\n"
 		if(self.end > self.begin and self.rate < 0):
-			valid = False
+			fail = True
 			error_msg += "Rate must be positive if beginning is less than end.\n"
 		if(self.time <= 0):
-			valid = False
+			fail = True
 			error_msg += "Time at each step must be greater than 0 minutes.\n"
 		#display error message if invalid inputs
-		if(valid):
+		if(not fail):
 			#print temperatures for confirmation
 			error_msg += "Temperatures:\n"
 			for i in np.arange(self.temps.size):
 				error_msg += str(self.temps[i]) + " "
 				if(i % 5 == 0 and i > 0):
 					error_msg += "\n"
-			error_msg +="\nNumber of Steps: " + str(self.temps.size) #print # of steps
-			error_msg +="\nTime Between Each Step: " + str(self.time) + " minute(s)" #print time hold
-			error_msg +="\nTotal Program Length: " + str(self.time * (self.temps.size)) + " minute(s)" #print total program length
-		EC_lbl_entry_error.configure(text = error_msg) #print validation results to label
+			error_msg +="\nNumber of Steps: " + str(self.temps.size)
+			error_msg +="\nTime Between Each Step: " + str(self.time) + " minute(s)"
+			error_msg +="\nTotal Program Length: " + str(self.time * (self.temps.size)) + " minute(s)"
+			EC_lbl_entry_error.configure(text = error_msg)
+		EC_lbl_entry_error.configure(text = error_msg)
 		EC_lbl_entry_error.grid()
-		return valid
+		return fail
 	
 	def validate_file_inputs(self):
-		valid = True
+		fail = False
 		error_msg = ""
 		#check if each temperature is within a valid range
 		for temp in self.temps:
 			if(temp < MIN_TEMP or temp > MAX_TEMP):
-				valid = False
+				fail = True
 				error_msg +="All input temperatures must be between " + str(MIN_TEMP) + " and " +  str(MAX_TEMP) + ".\n"
 		if(self.time <= 0):
-			valid = False
+			fail = True
 			error_msg += "Time at each step must be greater than 0 minutes.\n"
 		error_msg += "Temperatures:\n"
 		for i in np.arange(self.temps.size):
@@ -387,7 +401,7 @@ class ECCustomStep:
 		error_msg +="\nTotal Program Length: " + str(self.time * (self.temps.size - 1))
 		EC_lbl_entry_error.configure(text = error_msg)
 		EC_lbl_entry_error.grid()
-		return valid
+		return fail
 
 	#sets the temperature to the first step
 	def start(self):
@@ -397,10 +411,18 @@ class ECCustomStep:
 		self.running = True
 		
 		#store time of day
-		read = client.read_holding_registers(address = 14660 ,count = 1)
-		self.current_time = read.registers[0]
+		read = client.read_holding_registers(address = 14660 ,count = 2)
 		
-		
+		read1 = read.registers[0]
+		read2 = read.registers[1]
+		bin1 = format(read1, '016b')
+		bin2 = bin(read2)
+		str1 = str(bin1)
+		str2 = str(bin2)
+		str_bin = "0"+ str2.replace("0b","") + str1.replace("0b","")
+		self.current_time = int(str_bin, 2)
+        
+
 	def next_step(self):
 		if(self.step == (len(self.temps))):
 			self.running = False
@@ -410,8 +432,16 @@ class ECCustomStep:
 		self.step += 1
 		
 		#store time of day
-		read = client.read_holding_registers(address = 14660 ,count = 1)
-		self.current_time = read.registers[0]
+		read = client.read_holding_registers(address = 14660 ,count = 2)
+		
+		read1 = read.registers[0]
+		read2 = read.registers[1]
+		bin1 = format(read1, '016b')
+		bin2 = bin(read2)
+		str1 = str(bin1)
+		str2 = str(bin2)
+		str_bin = "0"+ str2.replace("0b","") + str1.replace("0b","")
+		self.current_time = int(str_bin, 2)
 		
 		
 		
@@ -465,19 +495,19 @@ def term_button():
 	for ent in EC_ents_custom:
 		ent.grid()
 		ent.configure(state = "normal")
-
 	EC_btn_read_file.grid() #redisplay buttons for reading file and custom 
 	EC_btn_custom.grid()
 	EC_ent_file.grid()
 	EC_lbl_profile_select.grid()
 	EC_cb_profile_select.grid()
-	EC_cb_profile_select.configure(state = "normal") #allow profile selection
+	
+	EC_cb_profile_select.configure(state = "normal")
 	client.write_registers(16566, 148)
 	
 	time.sleep(1) #delay to allow termination to finish
 	
 	EC_lbl_entry_error.configure(text = "Profile Terminated")
-	set_temp(23)
+	set_temp(25)
 	
 def custom_button():
 	global custom
@@ -487,7 +517,7 @@ def custom_button():
 	ramp_input = EC_ent_ramp.get()
 	time_input = EC_ent_time.get()
 	custom = ECCustomStep(begin_input, end_input, ramp_input, time_input)
-	if(custom.validate_EC_inputs()): #if inputs are valid
+	if(not custom.validate_EC_inputs()):
 		#disable user input into entry
 		for ent in EC_ents_custom:
 			ent.configure(state = "disabled")
@@ -496,8 +526,7 @@ def custom_button():
 		EC_btn_custom.configure(text = "Confirm Program", command = confirm_button)
 		EC_btn_edit_custom.configure(text = "Edit Custom Program", command = edit_button)
 		EC_btn_edit_custom.grid()
-
-#allows user to edit EC entry fields when pressed
+		
 def edit_button():
 	#renable entry elements and hide custom button
 	for ent in EC_ents_custom:
@@ -505,7 +534,6 @@ def edit_button():
 	EC_btn_custom.configure(text = "Create Custom Program", command = custom_button)
 	EC_btn_edit_custom.grid_remove()
 
-#confirms custom EC program and begins 0
 def confirm_button():
 	global remaining_time, paused, remaining_time_total
 	print("Program confirmed")
@@ -521,8 +549,7 @@ def confirm_button():
 	EC_btn_edit_custom.grid_remove()
 	EC_btn_start_pause.grid_remove()
 	EC_btn_read_file.grid_remove()
-
-#pauses the EC program
+	
 def pause_custom_button():
 	global paused, remaining_time, remaining_time_total ,custom
 	if(paused):
@@ -531,20 +558,41 @@ def pause_custom_button():
 		paused = False
 		EC_btn_custom.configure(text = "Pause Custom Program")
 		
-		read = client.read_holding_registers(address = 14660 ,count = 1)
-		custom.current_time = int(read.registers[0])
+		read = client.read_holding_registers(address = 14660 ,count = 2)
+		
+		#gets full 32 bits from register
+		read1 = read.registers[0]
+		read2 = read.registers[1]
+		bin1 = format(read1, '016b')
+		bin2 = bin(read2)
+		str1 = str(bin1)
+		str2 = str(bin2)
+		str_bin = "0"+ str2.replace("0b","") + str1.replace("0b","")
+		custom.current_time = int(str_bin ,2)
+		
 	else:
 		print("Pausing")
 		paused = True
-
-		#shows options to resume or terminate the program
 		EC_btn_custom.configure(text = "Resume Custom Program")
 		EC_btn_edit_custom.configure(text = "Terminate Custom Program", command = terminate_custom_button)
 		EC_btn_edit_custom.grid()
 		
 		#calculate new remaining time
-		read = client.read_holding_registers(address = 14660 ,count = 1)
-		current_time = int(read.registers[0])
+		read = client.read_holding_registers(address = 14660 ,count = 2)
+		
+		#gets full 32 bits from register
+		read1 = read.registers[0]
+		read2 = read.registers[1]
+		bin1 = format(read1, '016b')
+		bin2 = format(read2, '016b')
+		str1 = str(bin1)
+		str2 = str(bin2)
+		str_bin = "0"+ str2.replace("0b","") + str1.replace("0b","")
+		#print("str_bin")
+		#print(str_bin)
+		current_time = int(str_bin , 2)
+		
+		#print(custom.current_time)
 		
 		if(current_time < custom.current_time):
 			#prevents overflow
@@ -552,16 +600,15 @@ def pause_custom_button():
 		else:
 			elapsed_time = current_time - custom.current_time
 		
-		#account for the time that elapsed while paused
+		
 		remaining_time -= (current_time - custom.current_time)
 		remaining_time_total -= (current_time - custom.current_time)
 
+	
 def terminate_custom_button():
 	#end the custom program
 	custom.step = 0
 	custom.running = False
-
-	#configure GUI to allow for a new custom program
 	EC_btn_custom.configure(text = "Create Custom Program", command = custom_button)
 	for ent in EC_ents_custom:
 		ent.configure(state = "normal")
@@ -573,26 +620,25 @@ def terminate_custom_button():
 	EC_btn_start_pause.grid()
 	EC_btn_read_file.grid()
 	
-	#set chamber set point to 23 C
-	set_temp(23)
+	#set chamber set point to 25 C
+	set_temp(25)
 
-#loads and reads a file for custom EC temperatures
 def file_button():
 	file_name = EC_ent_file.get()
 	#read file, print error message if fail
 	try:
 		custom.read_file(file_name)
-		if(custom.validate_file_inputs()): #validate inputs from the file
+		if(not custom.validate_file_inputs()):
 			EC_btn_custom.configure(text = "Confirm Program", command = confirm_button)
 			#change button to confirm and show edit button
 			EC_btn_edit_custom.configure(text = "Edit Custom Program", command = edit_button)
 			EC_btn_edit_custom.grid()
-	except OSError as e: #prints an error message if a file cannot be read
+	except OSError as e:
 		error_msg = "Unable to open file."
 		EC_lbl_entry_error.configure(text = error_msg)
 		EC_lbl_entry_error.grid()
 
-def update(): #updates the GUI with the temperature chamber's time, temperature, and humidity
+def update():
 	global disconnected
 	try:
 		#attempt to reconnect if chamber disconnected
@@ -613,10 +659,10 @@ def update(): #updates the GUI with the temperature chamber's time, temperature,
 		decoder = BinaryPayloadDecoder.fromRegisters(read.registers, Endian.Big, wordorder=Endian.Little)
 		current_temp = decoder.decode_32bit_float()
 		
-		#read temperature set point
 		decoder.reset()
 		read = client.read_holding_registers(address = 2782, count = 4)
 		decoder = BinaryPayloadDecoder.fromRegisters(read.registers, Endian.Big, wordorder=Endian.Little)
+
 		set_point_temp = decoder.decode_32bit_float()
 		EC_lbl_temp.configure(text = "Current Temperature: " + "{:.1f}".format(current_temp) + " C\nSet Point: " + "{:.1f}".format(set_point_temp) + " C")
 		
@@ -627,10 +673,9 @@ def update(): #updates the GUI with the temperature chamber's time, temperature,
 		current_humidity = decoder.decode_32bit_float()
 		EC_lbl_hum.configure(text = "Current Humidity: " + "{:.1f}".format(current_humidity) + "%")
 
-		#update time/check for next step
+		#update time
 		update_time()
 	except pymodbus.exceptions.ModbusException as e:
-		#if no chamber connected, set disconnected flag and print error
 		EC_lbl_entry_error.configure(text = "No Chamber Connection")
 		print("No Chamber Connection")
 		disconnected = True
@@ -650,14 +695,14 @@ def set_temp(temp):
 	
 def update_time():
 	global remaining_time_total, remaining_time
-	#get hour, minute and second, pad with zero if less than 10
+	#get hour, minute and second
 	read = client.read_holding_registers(address = 14664 ,count = 1)
 	hour = read.registers[0]
 	if(hour < 10):
 		time_str = "0" + str(hour)
 	else:
 		time_str = str(hour)
-	
+		
 	read = client.read_holding_registers(address = 14666 ,count = 1)
 	minute = read.registers[0]
 	if(minute < 10):
@@ -675,8 +720,18 @@ def update_time():
 	EC_lbl_time.configure(text = time_str)
 	
 	#check if it is time to go to next step
-	read = client.read_holding_registers(address = 14660 ,count = 1)
-	current_time = int(read.registers[0])
+	read = client.read_holding_registers(address = 14660 ,count = 2)
+	#gets full 32 bits from register
+	read1 = read.registers[0]
+	read2 = read.registers[1]
+	bin1 = format(read1, '016b')
+	bin2 = bin(read2)
+	str1 = str(bin1)
+	str2 = str(bin2)
+	str_bin = "0"+ str2.replace("0b","") + str1.replace("0b","")
+	#print(custom.current_time)
+	
+	current_time = int(str_bin , 2)
 	if(custom.running and not paused):
 		#print remaining time of step and step number to entry label
 		if(current_time < custom.current_time):
@@ -718,8 +773,16 @@ def update_time():
 					EC_btn_edit_custom.grid_remove()
 					
 					EC_ent_file.grid()
-					set_temp(23)
+					set_temp(25)
 		
+		with open('/home/dirspi/Desktop/times.csv', 'a', newline='') as file:
+			writer = csv.writer(file)
+			t = time.localtime()
+			current_time_check = time.strftime("%H:%M:%S", t)
+			writer.writerow([current_time_check, custom.current_time, current_time, elapsed_time, remaining_time, str(custom.step)])
+			
+			
+			
 #GUI objects for EC chamber
 app = ctk.CTk() 
 EC_lbl_temp = ctk.CTkLabel(master=app, text="No Temp Recorded", width=120, height = 25)
@@ -764,6 +827,13 @@ BB_ent_delay = ctk.CTkEntry(master=BB_frm_entries, width = 140, placeholder_text
 BB_ent_outfile = ctk.CTkEntry(master=BB_frm_entries, width = 140, placeholder_text="Outfile Name")
 
 BB_frm_units = ctk.CTkFrame(master=app)
+
+""" lbl_startTempC = ctk.CTkLabel(master=frm_units, text="\N{DEGREE CELSIUS}")
+lbl_endTempC = ctk.CTkLabel(master=frm_units, text="\N{DEGREE CELSIUS}")
+lbl_stepC = ctk.CTkLabel(master=frm_units, text="\N{DEGREE CELSIUS}")
+lbl_delayM = ctk.CTkLabel(master=frm_units, text="minutes")
+lbl_outfileTxt = ctk.CTkLabel(master=frm_units, text=".txt") """
+
 BB_frm_displays = ctk.CTkFrame(master=app)
 
 BB_lbl_dispStartTemp = ctk.CTkLabel(master=BB_frm_displays, text = "")
@@ -813,16 +883,10 @@ BB_btn_compute = ctk.CTkButton(
 
 # start buttons
 BB_lbl_dispStartSerial = ctk.CTkLabel(master=app, text = "")
-BB_lbl_dispStartEthernet = ctk.CTkLabel(master=app, text = "")
 BB_btn_startSerial = ctk.CTkButton(
 	master=app,
 	text="Start Serial",
 	command=BB_serial # run this subroutine when button is pressed
-)
-BB_btn_startEthernet = ctk.CTkButton(
-	master=app,
-	text="Start Ethernet",
-	command=lambda: BB_ethernet(temps=temps, delay=delay, outfile=outfile, lbl=BB_lbl_dispStartEthernet) # run this subroutine when button is pressed
 )
 
 BB_btn_stop = ctk.CTkButton(
@@ -840,7 +904,7 @@ if __name__ == "__main__":
 		print("Connected!")
 	except pymodbus.exceptions.ModbusException as e:
 		print("Connection Failed")
-		EC_lbl_entry_error.configure(text = "No Connection to Chamber")
+		lbl_entry_error.configure(text = "No Connection to Chamber")
 		disconnected = True
 	
 	ctk.set_appearance_mode("dark")
@@ -877,12 +941,26 @@ if __name__ == "__main__":
 	EC_ent_file.grid(row=7, column = 2, padx = 40, pady = 5)
 	
 	#########     BB GUI                   ####################
+
+	""" lbl_startTemp.grid(row=8, column=0, pady=6)
+	lbl_endTemp.grid(row=9, column=0, pady=6)
+	lbl_step.grid(row=10, column=0, pady=6)
+	lbl_delay.grid(row=11, column=0, pady=6)
+	lbl_outfile.grid(row=12, column=0, pady=6) """
+
 	# place entry widgets
 	BB_ent_startTemp.grid(row=8, column = 2, padx = 40, pady = 5)
 	BB_ent_endTemp.grid(row=9, column = 2, padx = 40, pady = 5)
 	BB_ent_step.grid(row=10, column = 2, padx = 40, pady = 5)
 	BB_ent_delay.grid(row=11, column = 2, padx = 40, pady = 5)
 	BB_ent_outfile.grid(row=12, column = 2, padx = 40, pady = 5)
+
+	# entry units
+	""" 	lbl_startTempC.grid(row=8, column=0, sticky="w", pady=6)
+	lbl_endTempC.grid(row=9, column=0, sticky="w", pady=6)
+	lbl_stepC.grid(row=10, column=0, sticky="w", pady=6)
+	lbl_delayM.grid(row=11, column=0, sticky="w", pady=6)
+	lbl_outfileTxt.grid(row=12, column=0, sticky="w", pady=6) """
 
 	# display labels
 	BB_lbl_dispStartTemp.grid(row=8, column=0, pady=6, sticky="w")
@@ -891,6 +969,12 @@ if __name__ == "__main__":
 	BB_lbl_dispDelay.grid(row=11, column=0, pady=6, sticky="w")
 	BB_lbl_dispOutfile.grid(row=12, column=0, pady=6, sticky="w")
 	BB_lbl_entry_error.grid(row = 9, column = 3)
+	# enter buttons
+	""" btn_startEnter.grid(row=8, column=0, pady=3)
+	btn_endEnter.grid(row=9, column=0, pady=3)
+	btn_stepEnter.grid(row=10, column=0, pady=3)
+	btn_delayEnter.grid(row=11, column=0, pady=3)
+	btn_outfileEnter.grid(row=12, column=0, pady=3) """
 
 	# pack it all
 	BB_lbl_topMsg.grid(row=8, columnspan=3, column = 1)
@@ -902,13 +986,10 @@ if __name__ == "__main__":
 	BB_btn_compute.grid(row=9, column=1, padx=10, pady=10)
 	BB_lbl_dispSweep.grid(row=10, column=2, columnspan=3, padx=10, pady=10)
 	BB_btn_startSerial.grid(row=10, column=0, columnspan=2, padx=10, pady=10)
-	BB_btn_startEthernet.grid(row=11, column=0, columnspan=2, padx=10, pady=10)
 	BB_btn_stop.grid(row=12, column=0, columnspan=2, padx=10, pady=10)
 	BB_lbl_dispStartSerial.grid(row=12, columnspan=5, padx=10, pady=10)
-	BB_lbl_dispStartEthernet.grid(row=12, columnspan=5, padx=10, pady=10)
 	
 	BB_btn_startSerial.grid_remove()
-	BB_btn_startEthernet.grid_remove()
 	BB_btn_stop.grid_remove()
 	bb_index = 1
 	#begin running update
